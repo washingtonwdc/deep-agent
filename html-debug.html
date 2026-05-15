@@ -1,0 +1,280 @@
+﻿<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Deep Agent</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:#f8fafc;color:#1e293b;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+    /* ── Layout ── */
+    .layout{display:flex;flex:1;overflow:hidden;gap:0}
+    /* ── Browser Panel ── */
+    .browser-panel{flex:1;display:flex;flex-direction:column;background:#f1f5f9;border-right:1px solid #e2e8f0;min-width:0}
+    .browser-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#ffffff;border-bottom:1px solid #e2e8f0;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+    .browser-dots{display:flex;gap:5px}.browser-dot{width:11px;height:11px;border-radius:50%}
+    .browser-dot.red{background:#ff5f57}.browser-dot.yellow{background:#ffbd2e}.browser-dot.green{background:#28c840}
+    .browser-url-bar{flex:1;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:5px 12px;font-size:12px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:default}
+    .browser-status-dot{width:8px;height:8px;border-radius:50%;background:#3b82f6;transition:background .3s}
+    .browser-status-dot.loading{background:#f59e0b;animation:blink 1s infinite}
+    .browser-status-dot.done{background:#22c55e}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    .browser-viewport{flex:1;overflow:hidden;display:flex;align-items:stretch;position:relative;background:#e8edf3}
+    #screenImg{width:100%;height:100%;object-fit:contain;display:block;transition:opacity .2s}
+    .no-screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;flex-direction:column;gap:12px}
+    .no-screen svg{opacity:.4}
+    /* ── Agent Panel ── */
+    .agent-panel{width:400px;flex-shrink:0;display:flex;flex-direction:column;background:#ffffff;border-left:1px solid #e2e8f0}
+    .agent-header{padding:18px 20px 14px;border-bottom:1px solid #f1f5f9;flex-shrink:0}
+    .agent-title{font-size:20px;font-weight:700;background:linear-gradient(135deg,#4f46e5,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .agent-subtitle{font-size:12px;color:#94a3b8;margin-top:3px}
+    .agent-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;background:#fafbfc}
+    .agent-messages::-webkit-scrollbar{width:4px}
+    .agent-messages::-webkit-scrollbar-thumb{background:#e2e8f0;border-radius:4px}
+    /* ── Message bubbles ── */
+    .msg{display:flex;flex-direction:column;gap:3px;animation:fadeIn .2s ease}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .msg-user .bubble{background:linear-gradient(135deg,#4f46e5,#7c3aed);border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:13px;align-self:flex-end;max-width:90%;color:#fff;box-shadow:0 2px 8px rgba(79,70,229,.25)}
+    .msg-status .bubble{background:transparent;color:#94a3b8;font-size:11px;padding:2px 0}
+    .msg-thinking .bubble{background:#fafafa;border:1px solid #e8edf3;border-radius:12px;padding:10px 14px;font-size:12px;color:#64748b;max-width:100%;font-style:italic;line-height:1.5}
+    .msg-thinking .bubble::before{content:'💭 ';opacity:.7}
+    .msg-action .bubble{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:8px 14px;font-size:12px;color:#1d4ed8;max-width:100%}
+    .msg-action .bubble .tool-name{font-weight:600;color:#2563eb;margin-right:4px}
+    .msg-action .bubble .tool-args{color:#64748b;font-size:11px;margin-top:2px;word-break:break-all}
+    .msg-result .bubble{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:8px 14px;font-size:12px;color:#15803d;max-width:100%}
+    .msg-result.err .bubble{background:#fef2f2;border-color:#fecaca;color:#dc2626}
+    .msg-done .bubble{background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:14px;padding:12px 16px;font-size:13px;color:#16a34a;max-width:100%;font-weight:500;box-shadow:0 2px 8px rgba(22,163,74,.1)}
+    .msg-done .bubble::before{content:'✅ ';}
+    .msg-error .bubble{background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:10px 14px;font-size:12px;color:#dc2626;max-width:100%}
+    /* ── Input area ── */
+    .agent-input{padding:14px 16px;border-top:1px solid #f1f5f9;flex-shrink:0;background:#ffffff}
+    .input-wrap{display:flex;gap:8px;align-items:flex-end}
+    #goalInput{flex:1;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:12px 16px;font-size:13px;font-family:inherit;color:#1e293b;resize:none;min-height:44px;max-height:120px;line-height:1.4;outline:0;transition:border .2s,box-shadow .2s}
+    #goalInput:focus{border-color:#4f46e5;background:#fff;box-shadow:0 0 0 3px rgba(79,70,229,.12)}
+    #goalInput::placeholder{color:#94a3b8}
+    #runBtn{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border:0;border-radius:12px;padding:11px 18px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap;transition:all .15s;flex-shrink:0;box-shadow:0 2px 8px rgba(79,70,229,.3)}
+    #runBtn:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(79,70,229,.4)}
+    #runBtn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+    .input-hint{font-size:10px;color:#cbd5e1;margin-top:6px;padding:0 4px}
+    /* ── Header bar ── */
+    .top-bar{background:#ffffff;border-bottom:1px solid #e2e8f0;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+    .logo{font-size:16px;font-weight:700;background:linear-gradient(135deg,#4f46e5,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .badge{background:#ede9fe;border:1px solid #ddd6fe;color:#6d28d9;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600}
+    .spacer{flex:1}
+    .clear-btn{background:transparent;border:1px solid #e2e8f0;color:#94a3b8;font-size:11px;padding:4px 10px;border-radius:8px;cursor:pointer;transition:all .2s}
+    .clear-btn:hover{border-color:#94a3b8;color:#64748b;background:#f8fafc}
+    /* ── Scroll hint sep ── */
+    .sep{text-align:center;font-size:10px;color:#e2e8f0;padding:4px 0;user-select:none}
+  </style>
+
+</head>
+<body>
+  <!-- Top bar -->
+  <div class="top-bar">
+    <span class="logo">⚡ Deep Agent</span>
+    <span class="badge">DeepSeek</span>
+    <div class="spacer"></div>
+    <button class="clear-btn" id="clearBtn">🗑 Limpar</button>
+  </div>
+
+  <div class="layout">
+    <!-- Browser Viewport -->
+    <div class="browser-panel">
+      <div class="browser-bar">
+        <div class="browser-dots">
+          <div class="browser-dot red"></div>
+          <div class="browser-dot yellow"></div>
+          <div class="browser-dot green"></div>
+        </div>
+        <div class="browser-url-bar" id="urlBar">about:blank</div>
+        <div class="browser-status-dot" id="statusDot"></div>
+      </div>
+      <div class="browser-viewport">
+        <div class="no-screen" id="noScreen">
+          <svg width="48" height="48" fill="none" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 20h8M12 18v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>Aguardando navegação...</span>
+        </div>
+        <img id="screenImg" style="display:none" alt="Browser" />
+      </div>
+    </div>
+
+    <!-- Agent Chat -->
+    <div class="agent-panel">
+      <div class="agent-header">
+        <div class="agent-title">Deep Agent</div>
+        <div class="agent-subtitle">IA + automação de navegador</div>
+      </div>
+      <div class="agent-messages" id="messages"></div>
+      <div class="agent-input">
+        <div class="input-wrap">
+          <textarea id="goalInput" rows="1" placeholder="O que você quer fazer? Ex: Pesquise o preço do iPhone no Mercado Livre"></textarea>
+          <button id="runBtn">▶ Executar</button>
+        </div>
+        <div class="input-hint">Enter para enviar · Shift+Enter para nova linha</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const msgsEl = document.getElementById('messages');
+    const goalInput = document.getElementById('goalInput');
+    const runBtn = document.getElementById('runBtn');
+    const urlBar = document.getElementById('urlBar');
+    const statusDot = document.getElementById('statusDot');
+    const screenImg = document.getElementById('screenImg');
+    const noScreen = document.getElementById('noScreen');
+    const clearBtn = document.getElementById('clearBtn');
+    const HIST_KEY = 'deep-agent-history';
+    const MAX_HIST = 150;
+    let running = false;
+    let screenshotInterval = null;
+
+    // ── History persistence ───────────────────────────────────────────────────
+    function loadHist() { try { return JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch { return []; } }
+    function saveHist(h) { try { localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(-MAX_HIST))); } catch {} }
+    function appendHist(e) { const h = loadHist(); h.push(e); saveHist(h); }
+
+    // ── Render a single message entry ─────────────────────────────────────────
+    function renderEntry(e) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg msg-' + e.type;
+      const bub = document.createElement('div');
+      bub.className = 'bubble';
+      if (e.type === 'action') {
+        bub.innerHTML = '<span class="tool-name">⚙ ' + e.tool + '</span>' +
+          (e.args && Object.keys(e.args).length ? '<div class="tool-args">' + JSON.stringify(e.args) + '</div>' : '');
+      } else {
+        bub.textContent = e.text || '';
+      }
+      if (e.type === 'result' && e.text && e.text.startsWith('✗')) wrap.classList.add('err');
+      wrap.appendChild(bub);
+      msgsEl.appendChild(wrap);
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+      return wrap;
+    }
+
+    // ── Add + persist ─────────────────────────────────────────────────────────
+    function addMsg(e, persist = true) {
+      renderEntry(e);
+      if (persist) appendHist(e);
+    }
+
+    // ── Screenshot polling ────────────────────────────────────────────────────
+    function startScreenshots() {
+      stopScreenshots();
+      screenshotInterval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/browser/screenshot');
+          if (!res.ok) return;
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          screenImg.onload = () => URL.revokeObjectURL(url);
+          screenImg.src = url;
+          screenImg.style.display = 'block';
+          noScreen.style.display = 'none';
+        } catch {}
+        // Also update URL bar
+        try {
+          const st = await fetch('/api/browser/state').then(r => r.json());
+          if (st.url && st.url !== 'about:blank') urlBar.textContent = st.url;
+        } catch {}
+      }, 800);
+    }
+    function stopScreenshots() {
+      if (screenshotInterval) { clearInterval(screenshotInterval); screenshotInterval = null; }
+    }
+
+    // ── Run the agent ─────────────────────────────────────────────────────────
+    async function runAgent(goal) {
+      if (running || !goal.trim()) return;
+      running = true;
+      runBtn.disabled = true;
+      statusDot.className = 'browser-status-dot loading';
+      addMsg({ type: 'user', text: goal });
+      goalInput.value = '';
+      goalInput.style.height = '';
+      startScreenshots();
+
+      let statusEl = null;
+
+      try {
+        const resp = await fetch('/api/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ goal }),
+        });
+
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('
+');
+          buf = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6);
+            if (raw === '[DONE]') break;
+            try {
+              const ev = JSON.parse(raw);
+              if (ev.type === 'status') {
+                if (statusEl) statusEl.remove();
+                statusEl = renderEntry({ type: 'status', text: ev.text });
+              } else {
+                if (statusEl) { statusEl.remove(); statusEl = null; }
+                addMsg(ev);
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        addMsg({ type: 'error', text: '✗ Falha na conexão: ' + err.message });
+      } finally {
+        running = false;
+        runBtn.disabled = false;
+        statusDot.className = 'browser-status-dot done';
+        setTimeout(() => { statusDot.className = 'browser-status-dot'; }, 3000);
+      }
+    }
+
+    // ── Input auto-resize ──────────────────────────────────────────────────────
+    goalInput.addEventListener('input', () => {
+      goalInput.style.height = 'auto';
+      goalInput.style.height = Math.min(goalInput.scrollHeight, 120) + 'px';
+    });
+    goalInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runAgent(goalInput.value.trim()); }
+    });
+    runBtn.addEventListener('click', () => runAgent(goalInput.value.trim()));
+
+    // ── Clear ─────────────────────────────────────────────────────────────────
+    clearBtn.addEventListener('click', () => {
+      localStorage.removeItem(HIST_KEY);
+      msgsEl.innerHTML = '';
+      addMsg({ type: 'status', text: '🗑 Histórico limpo.' }, false);
+    });
+
+    // ── Restore history ───────────────────────────────────────────────────────
+    const hist = loadHist();
+    if (hist.length === 0) {
+      addMsg({ type: 'status', text: '👋 Olá! Digite um objetivo e pressione Executar.' }, false);
+      addMsg({ type: 'status', text: 'Exemplo: Pesquise "notebook gamer" no Google e me diga os 3 primeiros resultados.' }, false);
+    } else {
+      hist.forEach(e => renderEntry(e));
+      const sep = document.createElement('div');
+      sep.className = 'sep'; sep.textContent = '— sessão restaurada —';
+      msgsEl.appendChild(sep);
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    }
+
+    // Start screenshot polling on load
+    startScreenshots();
+    goalInput.focus();
+  </script>
+</body>
+</html>

@@ -15,6 +15,7 @@ import { createDeepSeekStream, updateSessionParent } from '../services/deepseek.
 import { OpenAIRequest, ChoiceDelta, Message } from '../utils/types.ts';
 import { robustParseJSON } from '../utils/json.ts';
 import { registry } from '../tools/registry.ts';
+import { isGreeting, getGreetingResponse } from '../utils/greetings.ts';
 import type { FunctionToolDefinition } from '../tools/types.ts';
 
 export async function chatCompletions(c: Context) {
@@ -40,26 +41,93 @@ export async function chatCompletions(c: Context) {
 
       if (msg.role === 'system') {
         systemPrompt += contentStr + '\n\n';
-      } else if (i === messages.length - 1) {
-        if (msg.role === 'user') {
-          prompt += `User: ${contentStr}\n\n`;
-        } else if (msg.role === 'assistant') {
-          let assistantContent = contentStr;
-          if ((msg as any).reasoning_content) {
-            assistantContent = `<think>\n${(msg as any).reasoning_content}\n</think>\n${assistantContent}`;
+      } else if (msg.role === 'user') {
+        prompt += `User: ${contentStr}\n\n`;
+      } else if (msg.role === 'assistant') {
+        let assistantContent = contentStr;
+        // Do NOT re-inject reasoning_content — the model doesn't need its own prior thinking
+        if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
+          for (const tc of msg.tool_calls) {
+            let args = tc.function?.arguments || '{}';
+            if (typeof args !== 'string') args = JSON.stringify(args);
+            assistantContent += `\n<tool_call>{"name": "${tc.function?.name}", "arguments": ${args}}</tool_call>`;
           }
-          if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
-             for (const tc of msg.tool_calls) {
-               let args = tc.function?.arguments || '{}';
-               if (typeof args !== 'string') args = JSON.stringify(args);
-               assistantContent += `\n<tool_call>{"name": "${tc.function?.name}", "arguments": ${args}}</tool_call>`;
-             }
-          }
-          prompt += `Assistant: ${assistantContent.trim()}\n\n`;
-        } else if (msg.role === 'tool' || msg.role === 'function') {
-          prompt += `Tool Response (${msg.name || 'tool'}): ${contentStr}\n\n`;
         }
+        prompt += `Assistant: ${assistantContent.trim()}\n\n`;
+      } else if (msg.role === 'tool' || msg.role === 'function') {
+        prompt += `Tool Response (${(msg as any).name || 'tool'}): ${contentStr}\n\n`;
       }
+    }
+
+    // Detect greetings on first message (new session)
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find(m => m.role === 'user');
+    const userText = lastUserMessage?.content 
+      ? (Array.isArray(lastUserMessage.content) 
+        ? lastUserMessage.content.map((c: any) => c.text || '').join(' ')
+        : String(lastUserMessage.content))
+      : '';
+
+    if (messages.length === 1 && isGreeting(userText)) {
+      // Return friendly greeting without calling DeepSeek
+      const greetingResponse = getGreetingResponse(userText);
+      c.header('Content-Type', 'text/event-stream');
+      c.header('Cache-Control', 'no-cache');
+      c.header('Connection', 'keep-alive');
+
+      const completionId = 'chatcmpl-' + uuidv4();
+      return honoStream(c, async (streamWriter: any) => {
+        const writeEvent = async (data: any) => {
+          await streamWriter.write(`data: ${JSON.stringify(data)}\n\n`);
+        };
+
+        // Send initial chunk
+        await writeEvent({
+          id: completionId,
+          object: 'chat.completion.chunk',
+          created: Math.floor(Date.now() / 1000),
+          model: body.model,
+          choices: [{
+            index: 0,
+            delta: { role: 'assistant', content: '' },
+            logprobs: null,
+            finish_reason: null
+          }]
+        });
+
+        // Send greeting response in chunks (for natural streaming effect)
+        for (const char of greetingResponse) {
+          await writeEvent({
+            id: completionId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: body.model,
+            choices: [{
+              index: 0,
+              delta: { content: char },
+              logprobs: null,
+              finish_reason: null
+            }]
+          });
+          // Small delay for natural effect
+          await new Promise(r => setTimeout(r, 10));
+        }
+
+        // Send done
+        await writeEvent({
+          id: completionId,
+          object: 'chat.completion.chunk',
+          created: Math.floor(Date.now() / 1000),
+          model: body.model,
+          choices: [{
+            index: 0,
+            delta: {},
+            logprobs: null,
+            finish_reason: 'stop'
+          }]
+        });
+      });
     }
 
     // Inject tools instructions
@@ -89,10 +157,23 @@ export async function chatCompletions(c: Context) {
     const finalPrompt = systemPrompt ? `${systemPrompt}\n${prompt}` : prompt;
 
     const isThinkingModel = !body.model.includes('no-thinking');
-    
+
     // A session is new if it doesn't have any assistant messages yet.
-    // This handles cases where the first request has [System, User] messages.
     const isNewSession = !messages.some(m => m.role === 'assistant');
+
+    // When continuing an existing session (has assistant history), send only the
+    // last user/tool message — the DeepSeek session already has the prior context.
+    const sessionPrompt = !isNewSession
+      ? (() => {
+          // Find last non-assistant message from the end
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (m.role === 'user') return `User: ${Array.isArray(m.content) ? m.content.map((c: any) => c.text || JSON.stringify(c)).join('\n') : m.content || ''}\n\n`;
+            if (m.role === 'tool' || m.role === 'function') return `Tool Response (${(m as any).name || 'tool'}): ${Array.isArray(m.content) ? m.content.map((c: any) => c.text || JSON.stringify(c)).join('\n') : m.content || ''}\n\n`;
+          }
+          return finalPrompt;
+        })()
+      : finalPrompt;
 
     // Empty response retry logic
     let stream: ReadableStream;
@@ -101,7 +182,7 @@ export async function chatCompletions(c: Context) {
     while (retries > 0) {
       try {
         // If it's a new session, force parent_message_id to null
-        const result = await createDeepSeekStream(finalPrompt, isThinkingModel, isNewSession ? null : undefined);
+        const result = await createDeepSeekStream(sessionPrompt, isThinkingModel, isNewSession ? null : undefined);
         stream = result.stream;
         uiSessionId = result.uiSessionId;
         break; // Success

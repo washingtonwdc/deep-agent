@@ -8,7 +8,7 @@
  * Modified By: Pedro Farias
  */
 
-import { initPlaywright, closePlaywright, activePage } from './services/playwright.ts';
+import { initPlaywright, closePlaywright, activePage, saveStorageState } from './services/playwright.ts';
 
 async function main() {
   console.log('Opening DeepSeek to allow login...');
@@ -24,7 +24,8 @@ async function main() {
   
   // Wait indefinitely until user closes the process
   process.on('SIGINT', async () => {
-    console.log('Closing browser...');
+    console.log('Saving session and closing browser...');
+    await saveStorageState();
     await closePlaywright();
     process.exit(0);
   });

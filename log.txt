@@ -1,0 +1,4 @@
+Ôùç injected env (0) from .env // tip: Ôîü auth for agents [www.vestauth.com]
+[2026-05-15T16:24:50.266Z] [INFO] Server is running on port 3000
+[2026-05-15T16:24:55.209Z] [INFO] Playwright initialized.
+[2026-05-15T16:24:58.478Z] [INFO] Tab 0: DeepSeek (PoW) | Tab 1: automa├º├úo | Tab 2: Painel de Controle
